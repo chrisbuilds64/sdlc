@@ -127,16 +127,17 @@ docker logs -f oracle-free | grep -m1 "DATABASE IS READY TO USE"
 **What happens on first start:**
 Oracle initializes the database files, creates the Container Database (CDB: FREE) and the Pluggable Database (PDB: FREEPDB1). This takes 2-3 minutes. Subsequent starts are faster (data persisted in Docker volume `oracle-free-data`).
 
-**Connection details:**
-| Parameter | Value |
-|---|---|
-| Host | localhost |
-| Port | 1521 |
-| Service | FREEPDB1 |
-| Username | system |
-| Password | OracleLocal26ai (default) |
+**Local dev credentials:**
 
-**Note on passwords:** Avoid special characters (`!`, `@`, `#`) in ORACLE_PASSWORD. They cause shell escaping issues when connecting via `docker exec` or SQLcl command line.
+| User | Password | Purpose |
+|---|---|---|
+| system | OracleLocal26ai | DBA — run Liquibase migrations, schema owner |
+| PDBADMIN | OracleLocal26ai | PDB admin (Oracle built-in) |
+| sdlc_app | SdlcApp2026 | App user — Python API connects as this user |
+
+**Production:** Never hardcode passwords. Use environment variables or a secrets manager. The `sdlc_app` password must be rotated before any non-local deployment.
+
+**Note on passwords:** Avoid special characters (`!`, `@`, `#`) in Oracle passwords used on the CLI. They cause shell escaping issues when connecting via `docker exec` or SQLcl.
 
 ---
 
