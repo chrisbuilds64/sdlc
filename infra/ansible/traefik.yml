@@ -1,0 +1,168 @@
+# =============================================================================
+# MODULE 03: Traefik + Stack Deployment
+# =============================================================================
+#
+# Sets up Traefik as the reverse proxy and deploys the application stack
+# (Oracle 23ai, ORDS, Python API).
+#
+# Prerequisites:
+#   - Module 01 (foundation.yml) must have run
+#   - Module 02 (docker.yml) must have run
+#   - DNS A-records pointing to server IP:
+#       api.chrisbuilds64.com    → server IP
+#       dev.chrisbuilds64.com    → server IP (dev environment)
+#
+# Usage:
+#   ansible-playbook -i inventory.local.yml traefik.yml
+#
+#   Traefik only:
+#   ansible-playbook -i inventory.local.yml traefik.yml --tags traefik
+#
+#   Stack only:
+#   ansible-playbook -i inventory.local.yml traefik.yml --tags stack
+#
+# Phase: Phase 1 (Oracle + ORDS + Python API deployment coming in Phase 1)
+#        Currently deploys Traefik infrastructure only.
+#
+# =============================================================================
+
+---
+- name: "Module 03: Traefik + Stack"
+  hosts: servers
+  become: true
+  gather_facts: true
+
+  vars:
+    server_user: "{{ deploy_user | default('deploy') }}"
+    domain: "{{ server_domain | default('api.chrisbuilds64.com') }}"
+    letsencrypt_email: "{{ acme_email | default('admin@chrisbuilds64.com') }}"
+
+  tasks:
+
+    # =================================================================
+    # PHASE 1: Directory structure
+    # =================================================================
+
+    - name: "Directories: create stack directories"
+      tags: [traefik, stack]
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ server_user }}"
+        group: "{{ server_user }}"
+        mode: "0750"
+      loop:
+        - /opt/traefik
+        - /opt/traefik/letsencrypt
+        - /opt/stack
+
+    - name: "Directories: create acme.json for Let's Encrypt"
+      tags: [traefik]
+      ansible.builtin.file:
+        path: /opt/traefik/letsencrypt/acme.json
+        state: touch
+        owner: "{{ server_user }}"
+        group: "{{ server_user }}"
+        mode: "0600"
+
+    # =================================================================
+    # PHASE 2: Docker networks
+    # =================================================================
+
+    - name: "Networks: create traefik-net"
+      tags: [traefik, stack]
+      community.docker.docker_network:
+        name: traefik-net
+        state: present
+
+    - name: "Networks: create stack-net"
+      tags: [stack]
+      community.docker.docker_network:
+        name: stack-net
+        state: present
+
+    # =================================================================
+    # PHASE 3: Traefik reverse proxy
+    # =================================================================
+
+    - name: "Traefik: create docker-compose.yml"
+      tags: [traefik]
+      ansible.builtin.copy:
+        content: |
+          services:
+            traefik:
+              image: traefik:v3
+              container_name: traefik
+              restart: unless-stopped
+              command:
+                - "--api.dashboard=false"
+                - "--providers.docker=true"
+                - "--providers.docker.exposedbydefault=false"
+                - "--providers.docker.network=traefik-net"
+                - "--entrypoints.web.address=:80"
+                - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+                - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+                - "--entrypoints.websecure.address=:443"
+                - "--certificatesresolvers.letsencrypt.acme.email={{ letsencrypt_email }}"
+                - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+                - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+                - "--log.level=INFO"
+                - "--accesslog=true"
+              ports:
+                - "80:80"
+                - "443:443"
+              volumes:
+                - /var/run/docker.sock:/var/run/docker.sock:ro
+                - ./letsencrypt:/letsencrypt
+              networks:
+                - traefik-net
+
+          networks:
+            traefik-net:
+              external: true
+        dest: /opt/traefik/docker-compose.yml
+        owner: "{{ server_user }}"
+        group: "{{ server_user }}"
+        mode: "0644"
+
+    - name: "Traefik: start"
+      tags: [traefik]
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: /opt/traefik
+      register: traefik_start
+      changed_when: "'Started' in traefik_start.stderr or 'Created' in traefik_start.stderr"
+
+    # =================================================================
+    # PHASE 4: Application stack
+    # NOTE: Oracle 23ai + ORDS + Python API deployment — Phase 1
+    #       This section will be expanded once services are containerized.
+    # =================================================================
+
+    - name: "Stack: placeholder notice"
+      tags: [stack]
+      ansible.builtin.debug:
+        msg: |
+          Stack deployment (Oracle 23ai + ORDS + Python API) coming in Phase 1.
+          Traefik is running and ready to route once services are defined.
+
+    # =================================================================
+    # PHASE 5: Verification
+    # =================================================================
+
+    - name: "Verify: Traefik container running"
+      tags: [traefik]
+      ansible.builtin.command: docker inspect traefik --format "{{ '{{' }}.State.Status{{ '}}' }}"
+      register: traefik_status
+      changed_when: false
+
+    - name: "Verify: summary"
+      ansible.builtin.debug:
+        msg: |
+          === MODULE 03 COMPLETE ===
+
+          Traefik:  {{ traefik_status.stdout | trim | upper }}
+          Network:  traefik-net ready
+          Domain:   {{ domain }}
+
+          >>> TRAEFIK RUNNING — READY FOR STACK DEPLOYMENT <<<

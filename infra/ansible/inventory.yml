@@ -1,0 +1,29 @@
+# Inventory Template — chrisbuilds64/sdlc
+#
+# Copy this file to inventory.local.yml and fill in real values.
+# inventory.local.yml is gitignored and never committed.
+#
+# Usage:
+#   ansible-playbook -i inventory.local.yml foundation.yml
+
+all:
+  children:
+    servers:
+      hosts:
+        prod:
+          ansible_host: YOUR_SERVER_IP
+          ansible_user: deploy
+          ansible_ssh_private_key_file: ~/.ssh/your_key
+          deploy_user: deploy
+          swap_size: "4G"
+          timezone: "Europe/Berlin"
+          server_domain: "api.chrisbuilds64.com"
+
+        # dev:
+        #   ansible_host: YOUR_DEV_SERVER_IP
+        #   ansible_user: deploy
+        #   ansible_ssh_private_key_file: ~/.ssh/your_key
+        #   deploy_user: deploy
+        #   swap_size: "2G"
+        #   timezone: "Europe/Berlin"
+        #   server_domain: "dev.chrisbuilds64.com"

@@ -1,0 +1,119 @@
+# =============================================================================
+# MODULE 04: Monitoring (Uptime Kuma)
+# =============================================================================
+#
+# Deploys Uptime Kuma as monitoring dashboard, routed through Traefik.
+#
+# Prerequisites:
+#   - Module 01 (foundation.yml) must have run
+#   - Module 02 (docker.yml) must have run
+#   - Module 03 (traefik.yml) must have run
+#   - DNS must point to server IP (wildcard or specific A-record)
+#
+# Usage:
+#   ansible-playbook -i inventory.local.yml monitoring.yml
+#
+# =============================================================================
+
+---
+- name: "Module 04: Monitoring"
+  hosts: servers
+  become: true
+  gather_facts: true
+
+  vars:
+    server_user: "{{ deploy_user | default('deploy') }}"
+    monitoring_domain: "{{ status_domain | default('status.chrisbuilds64.com') }}"
+
+  tasks:
+
+    # =================================================================
+    # PHASE 1: Directory
+    # =================================================================
+
+    - name: "Monitoring: create directory"
+      ansible.builtin.file:
+        path: /opt/monitoring
+        state: directory
+        owner: "{{ server_user }}"
+        group: "{{ server_user }}"
+        mode: "0750"
+
+    # =================================================================
+    # PHASE 2: Deploy Uptime Kuma
+    # =================================================================
+
+    - name: "Monitoring: create docker-compose.yml"
+      ansible.builtin.copy:
+        content: |
+          services:
+            uptime-kuma:
+              image: louislam/uptime-kuma:1
+              container_name: uptime-kuma
+              restart: unless-stopped
+              volumes:
+                - uptime_data:/app/data
+              networks:
+                - traefik-net
+              labels:
+                - "traefik.enable=true"
+                - "traefik.http.routers.uptime-kuma.rule=Host(`{{ monitoring_domain }}`)"
+                - "traefik.http.routers.uptime-kuma.entrypoints=websecure"
+                - "traefik.http.routers.uptime-kuma.tls.certresolver=letsencrypt"
+                - "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"
+
+          volumes:
+            uptime_data:
+              name: uptime-kuma-data
+
+          networks:
+            traefik-net:
+              external: true
+        dest: /opt/monitoring/docker-compose.yml
+        owner: "{{ server_user }}"
+        group: "{{ server_user }}"
+        mode: "0644"
+
+    # =================================================================
+    # PHASE 3: Start
+    # =================================================================
+
+    - name: "Monitoring: start Uptime Kuma"
+      ansible.builtin.command:
+        cmd: docker compose up -d
+        chdir: /opt/monitoring
+      register: monitoring_start
+      changed_when: "'Started' in monitoring_start.stderr or 'Created' in monitoring_start.stderr"
+
+    - name: "Monitoring: wait for Uptime Kuma"
+      ansible.builtin.command: docker inspect uptime-kuma --format "{{ '{{' }}.State.Running{{ '}}' }}"
+      register: kuma_running
+      until: kuma_running.stdout | trim == "true"
+      retries: 6
+      delay: 5
+      changed_when: false
+
+    # =================================================================
+    # PHASE 4: Verification
+    # =================================================================
+
+    - name: "Verify: container status"
+      ansible.builtin.command: docker ps --filter name=uptime-kuma --format "{{ '{{' }}.Names{{ '}}' }}\t{{ '{{' }}.Status{{ '}}' }}"
+      register: kuma_status
+      changed_when: false
+
+    - name: "Verify: summary"
+      ansible.builtin.debug:
+        msg: |
+          === MODULE 04 COMPLETE ===
+
+          Container: {{ kuma_status.stdout }}
+          Dashboard: https://{{ monitoring_domain }}
+
+          Next steps:
+          1. Open dashboard in browser
+          2. Create admin account
+          3. Configure monitors (API health, Oracle, ORDS)
+          4. Set up alerting (Telegram, email)
+
+          >>> MONITORING DEPLOYED <<<

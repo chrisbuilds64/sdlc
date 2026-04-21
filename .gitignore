@@ -56,3 +56,7 @@ build/
 *.pem
 *.p12
 secrets/
+*.log
+infra/ansible/reports/*.xml
+infra/ansible/reports/*.log
+inventory.local.yml
