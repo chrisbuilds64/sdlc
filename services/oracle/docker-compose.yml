@@ -1,6 +1,7 @@
 services:
   oracle-free:
-    image: container-registry.oracle.com/database/free:latest-lite
+    # Pinned to 26ai — latest-lite auto-updated from 23ai, intentionally staying on 26ai
+    image: container-registry.oracle.com/database/free:latest-lite@sha256:481dbb4a1ea7cac6aadd354ff42b48fb7e4df955725158f237ad58c8fca1f458
     container_name: oracle-free
     restart: unless-stopped
     ports:
