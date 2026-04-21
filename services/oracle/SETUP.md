@@ -41,9 +41,18 @@ java -version
 brew install sqlcl
 ```
 
-Add to your shell profile:
+Add both Java and SQLcl to `~/.zshrc` (or `~/.bashrc`):
 ```bash
-export PATH="/opt/homebrew/Caskroom/sqlcl/$(ls /opt/homebrew/Caskroom/sqlcl)/sqlcl/bin:$PATH"
+# Java (required by SQLcl)
+export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
+
+# SQLcl — check installed version first: ls /opt/homebrew/Caskroom/sqlcl/
+export PATH="/opt/homebrew/Caskroom/sqlcl/26.1.0.086.1709/sqlcl/bin:$PATH"
+```
+
+Apply immediately:
+```bash
+source ~/.zshrc
 ```
 
 Verify:
