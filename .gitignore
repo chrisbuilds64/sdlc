@@ -1,0 +1,58 @@
+# Environment files — never commit secrets
+.env
+.env.*
+!.env.example
+*.env
+
+# Ansible Vault secrets
+*.vault
+ansible/vault_pass.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Docker
+docker-compose.override.yml
+
+# Oracle / SQLcl
+*.log
+liquibase.properties.local
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+*.iml
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# JetBrains
+.idea/
+*.iws
+
+# VSCode
+.vscode/
+!.vscode/extensions.json
+
+# Secrets
+*.key
+*.pem
+*.p12
+secrets/
