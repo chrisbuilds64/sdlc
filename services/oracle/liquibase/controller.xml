@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+        Master changelog — schema objects only.
+
+        Rules:
+        - Stateful (run once): releases/YYYY.MM/*.sql
+        - Stateless (repeatable): packages/, views/, triggers/ — runOnChange=true
+        - Never modify an existing changeset — add a new one instead
+        - App users and grants are managed by Ansible (oracle.yml), not here
+
+        Runs against each PDB independently: SDLC_DEV, SDLC_TEST, SDLC_PROD
+    -->
+
+    <!-- 2026.04: Initial schema -->
+    <include file="releases/2026.04/001-initial-schema.sql" relativeToChangelogFile="true"/>
+
+</databaseChangeLog>

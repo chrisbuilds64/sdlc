@@ -18,7 +18,7 @@
 #   - Weekly as a health check
 #
 # NOTE: Ported from develop/ repo (2026-04-22). Module 03 adapted from Caddy
-#       to Traefik. Oracle/ORDS/API tests will be added in Phase 1.
+#       to Traefik. Module 04 (Oracle) added 2026-04-22.
 #
 # =============================================================================
 
@@ -870,6 +870,159 @@
         that: "caddyfile_kuma.stdout | int > 0"
         fail_msg: "FEHLER: Uptime Kuma ist nicht im Caddyfile konfiguriert!"
         success_msg: "OK: Caddy routet zu Uptime Kuma"
+
+    # =================================================================
+    # PRUEFUNG 21: Oracle 26ai Free (Schatzkammer)
+    # =================================================================
+
+    - name: "Schatzkammer: Oracle Container laeuft"
+      tags: [module04]
+      ansible.builtin.command: docker inspect oracle-free --format "{{ '{{' }}.State.Running{{ '}}' }}"
+      register: oracle_running
+      changed_when: false
+      failed_when: false
+
+    - name: "Schatzkammer: Oracle aktiv"
+      tags: [module04]
+      ansible.builtin.assert:
+        that: "oracle_running.stdout | trim == 'true'"
+        fail_msg: "FEHLER: oracle-free Container laeuft nicht!"
+        success_msg: "OK: Oracle Container laeuft"
+
+    - name: "Schatzkammer: Oracle healthy"
+      tags: [module04]
+      ansible.builtin.command: docker inspect oracle-free --format "{{ '{{' }}.State.Health.Status{{ '}}' }}"
+      register: oracle_health
+      changed_when: false
+
+    - name: "Schatzkammer: Oracle Healthcheck bestanden"
+      tags: [module04]
+      ansible.builtin.assert:
+        that: "oracle_health.stdout | trim == 'healthy'"
+        fail_msg: "FEHLER: Oracle Healthcheck failed (Status: {{ oracle_health.stdout | trim }})!"
+        success_msg: "OK: Oracle healthy"
+
+    - name: "Schatzkammer: Port 1521 nur auf loopback gebunden"
+      tags: [module04]
+      ansible.builtin.command: docker inspect oracle-free --format "{{ '{{' }}json .NetworkSettings.Ports{{ '}}' }}"
+      register: oracle_ports
+      changed_when: false
+
+    - name: "Schatzkammer: Port nicht oeffentlich exponiert"
+      tags: [module04]
+      ansible.builtin.assert:
+        that: "'0.0.0.0' not in oracle_ports.stdout"
+        fail_msg: "FEHLER: Oracle 1521 ist oeffentlich exponiert (0.0.0.0)! Nur 127.0.0.1 erlaubt."
+        success_msg: "OK: Oracle 1521 nur auf 127.0.0.1 (SSH-Tunnel erforderlich)"
+
+    - name: "Schatzkammer: Alle 3 PDBs pruefen"
+      tags: [module04]
+      ansible.builtin.shell: |
+        docker exec oracle-free sqlplus -s "sys/{{ oracle_password }}@//localhost:1521/FREE as sysdba" <<'SQLEOF'
+        SET HEADING OFF PAGESIZE 0 FEEDBACK OFF
+        SELECT name FROM v$pdbs WHERE name IN ('SDLC_DEV','SDLC_TEST','SDLC_PROD') ORDER BY name;
+        EXIT;
+        SQLEOF
+      vars:
+        oracle_password: "{{ lookup('env', 'ORACLE_PASSWORD') | default('OracleServer26ai', true) }}"
+      register: pdb_list
+      changed_when: false
+
+    - name: "Schatzkammer: SDLC_DEV existiert"
+      tags: [module04]
+      ansible.builtin.assert:
+        that: "'SDLC_DEV' in pdb_list.stdout"
+        fail_msg: "FEHLER: PDB SDLC_DEV fehlt!"
+        success_msg: "OK: SDLC_DEV vorhanden"
+
+    - name: "Schatzkammer: SDLC_TEST existiert"
+      tags: [module04]
+      ansible.builtin.assert:
+        that: "'SDLC_TEST' in pdb_list.stdout"
+        fail_msg: "FEHLER: PDB SDLC_TEST fehlt!"
+        success_msg: "OK: SDLC_TEST vorhanden"
+
+    - name: "Schatzkammer: SDLC_PROD existiert"
+      tags: [module04]
+      ansible.builtin.assert:
+        that: "'SDLC_PROD' in pdb_list.stdout"
+        fail_msg: "FEHLER: PDB SDLC_PROD fehlt!"
+        success_msg: "OK: SDLC_PROD vorhanden"
+
+    - name: "Schatzkammer: Alle PDBs im Status READ WRITE"
+      tags: [module04]
+      ansible.builtin.shell: |
+        docker exec oracle-free sqlplus -s "sys/{{ oracle_password }}@//localhost:1521/FREE as sysdba" <<'SQLEOF'
+        SET HEADING OFF PAGESIZE 0 FEEDBACK OFF
+        SELECT COUNT(*) FROM v$pdbs
+        WHERE name IN ('SDLC_DEV','SDLC_TEST','SDLC_PROD')
+        AND open_mode = 'READ WRITE';
+        EXIT;
+        SQLEOF
+      vars:
+        oracle_password: "{{ lookup('env', 'ORACLE_PASSWORD') | default('OracleServer26ai', true) }}"
+      register: pdb_open
+      changed_when: false
+
+    - name: "Schatzkammer: Alle 3 PDBs offen"
+      tags: [module04]
+      ansible.builtin.assert:
+        that: "pdb_open.stdout | trim | int == 3"
+        fail_msg: "FEHLER: Nicht alle PDBs sind READ WRITE (gefunden: {{ pdb_open.stdout | trim }}/3)!"
+        success_msg: "OK: Alle 3 PDBs READ WRITE"
+
+    - name: "Schatzkammer: sdlc_app User in SDLC_DEV"
+      tags: [module04]
+      ansible.builtin.shell: |
+        docker exec oracle-free sqlplus -s "sys/{{ oracle_password }}@//localhost:1521/SDLC_DEV as sysdba" <<'SQLEOF'
+        SET HEADING OFF PAGESIZE 0 FEEDBACK OFF
+        SELECT COUNT(*) FROM dba_users WHERE username = 'SDLC_APP';
+        EXIT;
+        SQLEOF
+      vars:
+        oracle_password: "{{ lookup('env', 'ORACLE_PASSWORD') | default('OracleServer26ai', true) }}"
+      register: app_user_check
+      changed_when: false
+
+    - name: "Schatzkammer: App User vorhanden"
+      tags: [module04]
+      ansible.builtin.assert:
+        that: "app_user_check.stdout | trim | int == 1"
+        fail_msg: "FEHLER: sdlc_app User fehlt in SDLC_DEV!"
+        success_msg: "OK: sdlc_app User in SDLC_DEV vorhanden"
+
+    - name: "Schatzkammer: Liquibase Tracking-Tabelle in SDLC_DEV"
+      tags: [module04]
+      ansible.builtin.shell: |
+        docker exec oracle-free sqlplus -s "sys/{{ oracle_password }}@//localhost:1521/SDLC_DEV as sysdba" <<'SQLEOF'
+        SET HEADING OFF PAGESIZE 0 FEEDBACK OFF
+        SELECT COUNT(*) FROM dba_tables WHERE table_name = 'DATABASECHANGELOG';
+        EXIT;
+        SQLEOF
+      vars:
+        oracle_password: "{{ lookup('env', 'ORACLE_PASSWORD') | default('OracleServer26ai', true) }}"
+      register: lb_table
+      changed_when: false
+
+    - name: "Schatzkammer: Liquibase wurde ausgefuehrt"
+      tags: [module04]
+      ansible.builtin.assert:
+        that: "lb_table.stdout | trim | int == 1"
+        fail_msg: "FEHLER: DATABASECHANGELOG fehlt — Liquibase nie ausgefuehrt?"
+        success_msg: "OK: Liquibase-Tabelle vorhanden"
+
+    - name: "Schatzkammer: Restart-Policy"
+      tags: [module04]
+      ansible.builtin.command: docker inspect oracle-free --format "{{ '{{' }}.HostConfig.RestartPolicy.Name{{ '}}' }}"
+      register: oracle_restart
+      changed_when: false
+
+    - name: "Schatzkammer: Oracle startet automatisch neu"
+      tags: [module04]
+      ansible.builtin.assert:
+        that: "oracle_restart.stdout | trim in ['unless-stopped', 'always']"
+        fail_msg: "FEHLER: oracle-free hat keine Restart-Policy!"
+        success_msg: "OK: Oracle restart={{ oracle_restart.stdout | trim }}"
 
     # =================================================================
     # ERGEBNIS
