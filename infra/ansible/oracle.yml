@@ -204,69 +204,29 @@
       delay: 10
       changed_when: false
 
-    - name: "PDBs: drop FREEPDB1 + create ENTW, TEST, PROD"
+    - name: "PDBs: drop FREEPDB1"
       tags: [pdbs]
-      # Uses OS authentication (sqlplus / as sysdba) — no password exposure
       ansible.builtin.shell: |
         docker exec -u oracle oracle-free sqlplus -s / as sysdba <<'SQLEOF'
-        WHENEVER SQLERROR EXIT SQL.SQLCODE
-
-        -- Drop FREEPDB1 to free up the 3-PDB slot
-        DECLARE
-          v_count NUMBER;
-        BEGIN
-          SELECT COUNT(*) INTO v_count FROM v$pdbs WHERE name = 'FREEPDB1';
-          IF v_count > 0 THEN
-            EXECUTE IMMEDIATE 'ALTER PLUGGABLE DATABASE FREEPDB1 CLOSE IMMEDIATE';
-            EXECUTE IMMEDIATE 'DROP PLUGGABLE DATABASE FREEPDB1 INCLUDING DATAFILES';
-          END IF;
-        END;
-        /
-
-        -- Create ENTW
-        DECLARE
-          v_count NUMBER;
-        BEGIN
-          SELECT COUNT(*) INTO v_count FROM v$pdbs WHERE name = 'ENTW';
-          IF v_count = 0 THEN
-            EXECUTE IMMEDIATE q'[CREATE PLUGGABLE DATABASE ENTW
-              ADMIN USER pdb_admin IDENTIFIED BY "OraclePdb2026"
-              FILE_NAME_CONVERT = ('/opt/oracle/oradata/FREE/pdbseed/',
-                                   '/opt/oracle/oradata/FREE/ENTW/')]';
-          END IF;
-        END;
-        /
-
-        -- Create TEST
-        DECLARE
-          v_count NUMBER;
-        BEGIN
-          SELECT COUNT(*) INTO v_count FROM v$pdbs WHERE name = 'TEST';
-          IF v_count = 0 THEN
-            EXECUTE IMMEDIATE q'[CREATE PLUGGABLE DATABASE TEST
-              ADMIN USER pdb_admin IDENTIFIED BY "OraclePdb2026"
-              FILE_NAME_CONVERT = ('/opt/oracle/oradata/FREE/pdbseed/',
-                                   '/opt/oracle/oradata/FREE/TEST/')]';
-          END IF;
-        END;
-        /
-
-        -- Create PROD
-        DECLARE
-          v_count NUMBER;
-        BEGIN
-          SELECT COUNT(*) INTO v_count FROM v$pdbs WHERE name = 'PROD';
-          IF v_count = 0 THEN
-            EXECUTE IMMEDIATE q'[CREATE PLUGGABLE DATABASE PROD
-              ADMIN USER pdb_admin IDENTIFIED BY "OraclePdb2026"
-              FILE_NAME_CONVERT = ('/opt/oracle/oradata/FREE/pdbseed/',
-                                   '/opt/oracle/oradata/FREE/PROD/')]';
-          END IF;
-        END;
-        /
-
+        WHENEVER SQLERROR CONTINUE
+        ALTER PLUGGABLE DATABASE FREEPDB1 CLOSE IMMEDIATE;
+        DROP PLUGGABLE DATABASE FREEPDB1 INCLUDING DATAFILES;
         EXIT;
         SQLEOF
+      changed_when: true
+
+    - name: "PDBs: create {{ item }}"
+      tags: [pdbs]
+      ansible.builtin.shell: |
+        docker exec -u oracle oracle-free sqlplus -s / as sysdba <<'SQLEOF'
+        WHENEVER SQLERROR CONTINUE
+        CREATE PLUGGABLE DATABASE {{ item }}
+          ADMIN USER pdb_admin IDENTIFIED BY OraclePdb2026
+          FILE_NAME_CONVERT = ('/opt/oracle/oradata/FREE/pdbseed/',
+                               '/opt/oracle/oradata/FREE/{{ item }}/');
+        EXIT;
+        SQLEOF
+      loop: "{{ pdb_names }}"
       changed_when: true
 
     # =================================================================
@@ -284,31 +244,34 @@
         SQLEOF
       changed_when: true
 
+    - name: "PDBs: reload listener so PDB service names register immediately"
+      tags: [pdbs]
+      ansible.builtin.shell: |
+        docker exec oracle-free lsnrctl reload
+      changed_when: true
+
+    - name: "PDBs: wait 60s for listener registration to complete"
+      tags: [pdbs]
+      ansible.builtin.wait_for:
+        timeout: 60
+
     # =================================================================
     # PHASE 5: App user in each PDB
     # =================================================================
 
     - name: "App user: create sdlc_app in {{ item }}"
       tags: [pdbs]
-      # Switches container context to PDB via ALTER SESSION — still OS auth
       ansible.builtin.shell: |
-        docker exec -u oracle oracle-free sqlplus -s / as sysdba <<SQLEOF
-        WHENEVER SQLERROR EXIT SQL.SQLCODE
-        ALTER SESSION SET CONTAINER = {{ item }};
-        DECLARE
-          v_count NUMBER;
-        BEGIN
-          SELECT COUNT(*) INTO v_count FROM dba_users WHERE username = 'SDLC_APP';
-          IF v_count = 0 THEN
-            EXECUTE IMMEDIATE 'CREATE USER sdlc_app IDENTIFIED BY "${APP_PWD}"';
-            EXECUTE IMMEDIATE 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE PROCEDURE, CREATE TRIGGER, CREATE VIEW, UNLIMITED TABLESPACE TO sdlc_app';
-          END IF;
-        END;
-        /
-        EXIT;
-        SQLEOF
-      environment:
-        APP_PWD: "{{ oracle_app_password }}"
+        printf 'ALTER SESSION SET CONTAINER = {{ item }};\nWHENEVER SQLERROR CONTINUE\nCREATE USER sdlc_app IDENTIFIED BY {{ oracle_app_password }};\nGRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE PROCEDURE, CREATE TRIGGER, CREATE VIEW, UNLIMITED TABLESPACE TO sdlc_app;\nEXIT;\n' | \
+        docker exec -i -u oracle oracle-free sqlplus -s / as sysdba
+      loop: "{{ pdb_names }}"
+      changed_when: true
+
+    - name: "App user: grant DBA to pdb_admin in {{ item }} (needed for Liquibase)"
+      tags: [pdbs]
+      ansible.builtin.shell: |
+        printf 'ALTER SESSION SET CONTAINER = {{ item }};\nGRANT DBA TO pdb_admin;\nEXIT;\n' | \
+        docker exec -i -u oracle oracle-free sqlplus -s / as sysdba
       loop: "{{ pdb_names }}"
       changed_when: true
 
@@ -316,20 +279,21 @@
     # PHASE 6: Liquibase migrations (local Java + ojdbc11 — no Docker)
     # =================================================================
 
-    - name: "Liquibase: run migrations on {{ item }}"
+    - name: "Liquibase: run migrations"
       tags: [liquibase]
       ansible.builtin.command:
         cmd: >
           liquibase
-          --classpath={{ ojdbc_jar }}
           --url=jdbc:oracle:thin:@//localhost:1521/{{ item }}
-          --username=system
-          --password={{ oracle_password }}
-          --changelog-file={{ liquibase_dir }}/controller.xml
+          --username=pdb_admin
+          --password=OraclePdb2026
+          --search-path={{ liquibase_dir }}
+          --changelog-file=controller.xml
           update
       loop: "{{ pdb_names }}"
       register: liquibase_result
-      changed_when: "'Liquibase command 'update' was executed successfully' in liquibase_result.stdout"
+      changed_when: >-
+        "Liquibase command 'update' was executed successfully" in liquibase_result.stdout
 
     # =================================================================
     # PHASE 7: Verify
