@@ -42,7 +42,8 @@ def retrieve_chunks(conn: oracledb.Connection, question_vec: array.array,
         FETCH  FIRST :k ROWS ONLY
     """
     with conn.cursor() as cur:
-        qvec = oracledb.var(oracledb.DB_TYPE_VECTOR).setvalue(0, question_vec)
+        qvec = cur.var(oracledb.DB_TYPE_VECTOR)
+        qvec.setvalue(0, question_vec)
         cur.execute(sql, {"qvec": qvec, "k": top_k})
         rows = cur.fetchall()
 

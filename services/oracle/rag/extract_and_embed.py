@@ -22,7 +22,8 @@ from config import (
 
 
 def fetch_sources(conn: oracledb.Connection, owner_filter: str) -> list[dict]:
-    """Fetch full source text per object from ALL_SOURCE."""
+    """Fetch full source text per object from ALL_SOURCE.
+    Aggregates lines in Python to avoid LISTAGG's 32KB limit."""
     where = "WHERE type IN ('PACKAGE', 'PACKAGE BODY', 'PROCEDURE', 'FUNCTION', 'TRIGGER', 'TYPE')"
     params: dict = {}
     if owner_filter:
@@ -30,21 +31,25 @@ def fetch_sources(conn: oracledb.Connection, owner_filter: str) -> list[dict]:
         params["owner"] = owner_filter.upper()
 
     sql = f"""
-        SELECT owner, name, type,
-               LISTAGG(text, '') WITHIN GROUP (ORDER BY line) AS full_text
+        SELECT owner, name, type, line, text
         FROM   all_source
         {where}
-        GROUP BY owner, name, type
-        ORDER BY owner, type, name
+        ORDER BY owner, type, name, line
     """
     with conn.cursor() as cur:
         cur.execute(sql, params)
         rows = cur.fetchall()
 
+    # Group lines in Python — no 32KB limit
+    sources: dict[tuple, list[str]] = {}
+    for owner, name, obj_type, _line, text in rows:
+        key = (owner, name, obj_type)
+        sources.setdefault(key, []).append(text or "")
+
     return [
-        {"owner": r[0], "name": r[1], "type": r[2], "text": r[3] or ""}
-        for r in rows
-        if r[3] and len(r[3].strip()) > 10
+        {"owner": k[0], "name": k[1], "type": k[2], "text": "".join(lines)}
+        for k, lines in sources.items()
+        if "".join(lines).strip()
     ]
 
 
@@ -90,6 +95,8 @@ def store_chunks(conn: oracledb.Connection, model: SentenceTransformer,
 
             for seq, (chunk, emb) in enumerate(zip(chunks, embeddings)):
                 vec = array.array("f", emb.tolist())
+                vec_var = cur.var(oracledb.DB_TYPE_VECTOR)
+                vec_var.setvalue(0, vec)
                 cur.execute(
                     """INSERT INTO code_chunks
                        (source_owner, source_name, source_type, chunk_seq, chunk_text, embedding)
@@ -100,7 +107,7 @@ def store_chunks(conn: oracledb.Connection, model: SentenceTransformer,
                         "type":  obj_type,
                         "seq":   seq,
                         "text":  chunk,
-                        "emb":   oracledb.var(oracledb.DB_TYPE_VECTOR).setvalue(0, vec),
+                        "emb":   vec_var,
                     },
                 )
                 stored += 1
