@@ -209,25 +209,15 @@
     - name: "PDBs: drop FREEPDB1"
       tags: [pdbs]
       ansible.builtin.shell: |
-        docker exec -u oracle oracle-free sqlplus -s / as sysdba <<'SQLEOF'
-        WHENEVER SQLERROR CONTINUE
-        ALTER PLUGGABLE DATABASE FREEPDB1 CLOSE IMMEDIATE;
-        DROP PLUGGABLE DATABASE FREEPDB1 INCLUDING DATAFILES;
-        EXIT;
-        SQLEOF
+        printf 'WHENEVER SQLERROR CONTINUE\nALTER PLUGGABLE DATABASE FREEPDB1 CLOSE IMMEDIATE;\nDROP PLUGGABLE DATABASE FREEPDB1 INCLUDING DATAFILES;\nEXIT;\n' | \
+        docker exec -i oracle-free sqlplus -s / as sysdba
       changed_when: true
 
     - name: "PDBs: create {{ item }}"
       tags: [pdbs]
       ansible.builtin.shell: |
-        docker exec -u oracle oracle-free sqlplus -s / as sysdba <<'SQLEOF'
-        WHENEVER SQLERROR CONTINUE
-        CREATE PLUGGABLE DATABASE {{ item }}
-          ADMIN USER pdb_admin IDENTIFIED BY OraclePdb2026
-          FILE_NAME_CONVERT = ('/opt/oracle/oradata/FREE/pdbseed/',
-                               '/opt/oracle/oradata/FREE/{{ item }}/');
-        EXIT;
-        SQLEOF
+        printf "WHENEVER SQLERROR CONTINUE\nCREATE PLUGGABLE DATABASE {{ item }} ADMIN USER pdb_admin IDENTIFIED BY OraclePdb2026 FILE_NAME_CONVERT = ('/opt/oracle/oradata/FREE/pdbseed/', '/opt/oracle/oradata/FREE/{{ item }}/');\nEXIT;\n" | \
+        docker exec -i oracle-free sqlplus -s / as sysdba
       loop: "{{ pdb_names }}"
       changed_when: true
 
@@ -238,12 +228,8 @@
     - name: "PDBs: open all + save state (survives restart)"
       tags: [pdbs]
       ansible.builtin.shell: |
-        docker exec -u oracle oracle-free sqlplus -s / as sysdba <<'SQLEOF'
-        WHENEVER SQLERROR EXIT SQL.SQLCODE
-        ALTER PLUGGABLE DATABASE ALL OPEN;
-        ALTER PLUGGABLE DATABASE ALL SAVE STATE;
-        EXIT;
-        SQLEOF
+        printf 'WHENEVER SQLERROR EXIT SQL.SQLCODE\nALTER PLUGGABLE DATABASE ALL OPEN;\nALTER PLUGGABLE DATABASE ALL SAVE STATE;\nEXIT;\n' | \
+        docker exec -i oracle-free sqlplus -s / as sysdba
       changed_when: true
 
     - name: "PDBs: reload listener so PDB service names register immediately"

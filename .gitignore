@@ -31,6 +31,9 @@ docker-compose.override.yml
 *.log
 liquibase.properties.local
 
+# APEX installation files — large, not version-controlled
+apex-latest/
+
 # Flutter / Dart
 .dart_tool/
 .flutter-plugins
