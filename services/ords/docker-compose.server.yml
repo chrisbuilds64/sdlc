@@ -1,0 +1,35 @@
+services:
+  ords:
+    image: container-registry.oracle.com/database/ords:latest
+    container_name: ords
+    restart: unless-stopped
+    # Loopback only — Traefik proxies HTTPS externally
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ords-config:/etc/ords/config
+      # APEX static files copied from Oracle container by apex.yml (Phase 1)
+      - /opt/ords/apex-static:/opt/oracle/apex:ro
+    networks:
+      - oracle-net
+      - traefik-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-net"
+      - "traefik.http.routers.apex.rule=Host(`apex.chrisbuilds64.com`)"
+      - "traefik.http.routers.apex.entrypoints=websecure"
+      - "traefik.http.routers.apex.tls=true"
+      - "traefik.http.routers.apex.tls.certresolver=letsencrypt"
+      - "traefik.http.services.apex.loadbalancer.server.port=8080"
+
+volumes:
+  ords-config:
+    name: ords-config
+
+networks:
+  oracle-net:
+    external: true
+    name: oracle-net
+  traefik-net:
+    external: true
+    name: traefik-net
