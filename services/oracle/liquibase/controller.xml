@@ -20,4 +20,7 @@
     <!-- 2026.04: Initial schema -->
     <include file="releases/2026.04/001-initial-schema.sql" relativeToChangelogFile="true"/>
 
+    <!-- 2026.05: RAG infrastructure (code_chunks + vector embeddings) -->
+    <include file="releases/2026.05/001-rag-schema.sql" relativeToChangelogFile="true"/>
+
 </databaseChangeLog>

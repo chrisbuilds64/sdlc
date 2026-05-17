@@ -140,6 +140,7 @@
         - "{{ oracle_dir }}"
         - "{{ liquibase_dir }}"
         - "{{ liquibase_dir }}/releases/2026.04"
+        - "{{ liquibase_dir }}/releases/2026.05"
 
     - name: "Files: copy docker-compose.server.yml"
       tags: [oracle]
@@ -170,6 +171,7 @@
       loop:
         - controller.xml
         - releases/2026.04/001-initial-schema.sql
+        - releases/2026.05/001-rag-schema.sql
 
     # =================================================================
     # PHASE 2: Start Oracle container
@@ -258,6 +260,14 @@
     # =================================================================
     # PHASE 5: App user in each PDB
     # =================================================================
+
+    - name: "Tablespace: create sdlc_data in {{ item }} (ASSM — required for VECTOR type)"
+      tags: [pdbs]
+      ansible.builtin.shell: |
+        printf 'ALTER SESSION SET CONTAINER = {{ item }};\nWHENEVER SQLERROR CONTINUE\nCREATE TABLESPACE sdlc_data DATAFILE '"'"'/opt/oracle/oradata/FREE/{{ item }}/sdlc_data01.dbf'"'"' SIZE 100M AUTOEXTEND ON NEXT 50M MAXSIZE UNLIMITED SEGMENT SPACE MANAGEMENT AUTO;\nEXIT;\n' | \
+        docker exec -i -u oracle oracle-free sqlplus -s / as sysdba
+      loop: "{{ pdb_names }}"
+      changed_when: true
 
     - name: "App user: create sdlc_app in {{ item }}"
       tags: [pdbs]
