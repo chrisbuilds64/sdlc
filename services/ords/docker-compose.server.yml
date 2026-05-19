@@ -6,6 +6,10 @@ services:
     # Loopback only — Traefik proxies HTTPS externally
     ports:
       - "127.0.0.1:8080:8080"
+    environment:
+      # Auto-configure on first start if /etc/ords/config is empty
+      CONN_STRING: oracle-free:1521/ENTW
+      ORACLE_PWD: "${ORACLE_PWD}"
     volumes:
       - ords-config:/etc/ords/config
       # APEX static files copied from Oracle container by apex.yml (Phase 1)
