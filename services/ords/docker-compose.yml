@@ -12,6 +12,7 @@ services:
       ORACLE_PWD: "OracleLocal26ai"
     volumes:
       - ords-config:/etc/ords/config
+      - /tmp/apex-static/images:/opt/oracle/apex:ro
     networks:
       - oracle-net
 
